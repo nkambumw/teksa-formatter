@@ -6,10 +6,15 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 import tempfile
 import os
-import win32com.client as win32
 
+# ---------------------
+# Page Setup
+# ---------------------
 st.set_page_config(page_title="TekSA Report Management System", layout="wide")
 
+# ---------------------
+# Custom CSS Styling
+# ---------------------
 st.markdown("""
     <style>
         html, body, [class*="css"] {
@@ -45,6 +50,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# ---------------------
+# Sidebar: Formatting Options
+# ---------------------
 st.sidebar.title("🛠 Formatting Options")
 
 format_mode = st.sidebar.radio(
@@ -74,6 +82,9 @@ else:
         "Insert TOC": st.sidebar.checkbox("Insert TOC", value=True)
     }
 
+# ---------------------
+# Insert TOC Field (Cross-platform Safe)
+# ---------------------
 def insert_toc(paragraph):
     def create_run_element(child_element):
         run = OxmlElement("w:r")
@@ -98,80 +109,56 @@ def insert_toc(paragraph):
     paragraph._p.append(create_run_element(fldSeparate))
     paragraph._p.append(create_run_element(fldEnd))
 
+# ---------------------
+# Formatting Function
+# ---------------------
 def apply_formatting(doc_path, options):
     doc = Document(doc_path)
 
-    spacing_map = {
+    line_spacing_map = {
         "Single": 1.0,
         "1.15": 1.15,
         "1.5": 1.5,
         "Double": 2.0
     }
 
+    # Insert TOC at top if selected
     if options.get("Insert TOC"):
-        toc_para = doc.paragraphs[0].insert_paragraph_before("📑 Table of Contents")
-        insert_toc(toc_para)
-        toc_para.style = "Normal"
-        toc_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        first_para = doc.paragraphs[0]
+        toc_heading = first_para.insert_paragraph_before("📑 Table of Contents")
+        toc_heading.style = "Normal"
+        toc_heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        insert_toc(toc_heading)
 
+    # Apply formatting
     for para in doc.paragraphs:
         style_name = para.style.name.lower()
+        is_heading = "heading" in style_name
 
-        if "heading 1" in style_name:
-            para.paragraph_format.left_indent = Pt(0)
-            para.paragraph_format.first_line_indent = Pt(0)
-            para.paragraph_format.space_after = Pt(18)
-            para.paragraph_format.space_before = Pt(0)
-            para.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            if options.get("Bold Headings"):
-                for run in para.runs:
-                    run.bold = True
-                    run.font.name = "Calibri"
-                    run.font.size = Pt(14)
-                para.text = para.text.upper()
-            if options.get("Apply Page Breaks Before H1"):
-                para.paragraph_format.page_break_before = True
+        if is_heading and options.get("Bold Headings"):
+            for run in para.runs:
+                run.bold = True
 
-        elif "heading 2" in style_name:
-            para.paragraph_format.left_indent = Pt(0)
-            para.paragraph_format.first_line_indent = Pt(0)
-            para.paragraph_format.space_before = Pt(18)
-            para.paragraph_format.space_after = Pt(6)
-            para.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            if options.get("Bold Headings"):
-                for run in para.runs:
-                    run.bold = True
-                    run.font.name = "Calibri"
-                    run.font.size = Pt(12)
-                    run.font.small_caps = True
+        if "heading 1" in style_name and options.get("Apply Page Breaks Before H1"):
+            para.paragraph_format.page_break_before = True
 
-        elif "heading" not in style_name:
+        if not is_heading:
             for run in para.runs:
                 run.font.name = options.get("Standard Font", "Calibri")
                 run.font.size = Pt(options.get("Font Size", 11))
             para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY if options.get("Justify Paragraphs") else WD_ALIGN_PARAGRAPH.LEFT
-            para.paragraph_format.line_spacing = spacing_map.get(options.get("Line Spacing", "Single"))
+            para.paragraph_format.line_spacing = line_spacing_map.get(options.get("Line Spacing", "Single"))
             para.paragraph_format.space_before = Pt(6)
             para.paragraph_format.space_after = Pt(6)
-            para.paragraph_format.keep_together = True
 
     output_path = doc_path.replace(".docx", "_Formatted.docx")
     doc.save(output_path)
 
-    if options.get("Insert TOC"):
-        try:
-            word = win32.gencache.EnsureDispatch('Word.Application')
-            word.Visible = False
-            docx = word.Documents.Open(output_path)
-            docx.TablesOfContents(1).Update()
-            docx.Save()
-            docx.Close()
-            word.Quit()
-        except Exception as e:
-            st.warning(f"⚠️ TOC update failed: {e}")
-
     return output_path
 
+# ---------------------
+# Main UI
+# ---------------------
 st.markdown('<div class="big-title">📘 TekSA Report Management System</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Upload a Word document to prepare it for professional formatting.</div>', unsafe_allow_html=True)
 
@@ -180,37 +167,47 @@ temp_path = None
 
 if uploaded_file:
     st.success("✅ File uploaded successfully.", icon="📂")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".docx") as tmp:
         tmp.write(uploaded_file.getvalue())
         temp_path = tmp.name
+
     st.download_button(
         label="📥 Download Unchanged Document",
         data=uploaded_file.getvalue(),
         file_name="TekSA_Original_Upload.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
     st.markdown(
         '<div class="info-box">ℹ️ This document has not been changed yet. Formatting will be applied in the next steps based on your selections in the sidebar.</div>',
         unsafe_allow_html=True
     )
 
+# ---------------------
+# Formatting Summary
+# ---------------------
 if format_mode == "⚙️ Choose on-the-fly options" and formatting_choices:
     st.markdown("### 📋 Formatting Summary")
     st.markdown(
-        f"""
+        """
         <div style='background-color:#f0f8ff;padding:15px 20px;border-left:6px solid #0077b6;border-radius:5px;'>
         <ul style="line-height:1.8">
-        <li><strong>Font:</strong> {formatting_choices['Standard Font']}</li>
-        <li><strong>Font Size:</strong> {formatting_choices['Font Size']} pt</li>
-        {"<li><strong>Bold Headings:</strong> Enabled</li>" if formatting_choices['Bold Headings'] else ""}
-        {"<li><strong>Page Breaks Before Headings:</strong> Enabled</li>" if formatting_choices['Apply Page Breaks Before H1'] else ""}
-        {"<li><strong>Text Alignment:</strong> Justified</li>" if formatting_choices['Justify Paragraphs'] else "<li><strong>Text Alignment:</strong> Left</li>"}
-        <li><strong>Line Spacing:</strong> {formatting_choices['Line Spacing']}</li>
-        {"<li><strong>Insert Table of Contents:</strong> Yes</li>" if formatting_choices['Insert TOC'] else ""}
-        </ul></div>
-        """, unsafe_allow_html=True
+        """
+        + f"<li><strong>Font:</strong> {formatting_choices['Standard Font']}</li>"
+        + f"<li><strong>Font Size:</strong> {formatting_choices['Font Size']} pt</li>"
+        + ("<li><strong>Bold Headings:</strong> Enabled</li>" if formatting_choices['Bold Headings'] else "")
+        + ("<li><strong>Page Breaks Before Headings:</strong> Enabled</li>" if formatting_choices['Apply Page Breaks Before H1'] else "")
+        + ("<li><strong>Text Alignment:</strong> Justified</li>" if formatting_choices['Justify Paragraphs'] else "<li><strong>Text Alignment:</strong> Left</li>")
+        + f"<li><strong>Line Spacing:</strong> {formatting_choices['Line Spacing']}</li>"
+        + ("<li><strong>Insert Table of Contents:</strong> Yes</li>" if formatting_choices['Insert TOC'] else "")
+        + "</ul></div>",
+        unsafe_allow_html=True
     )
 
+# ---------------------
+# Final Step: Apply Button
+# ---------------------
 st.markdown("---")
 st.subheader("📎 Final Step: Apply Formatting")
 
